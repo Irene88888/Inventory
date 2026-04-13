@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>庫存控管系統</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #09090b; color: #e4e4e7; font-family: 'IBM Plex Mono', monospace; }
+  input, select { font-family: 'IBM Plex Mono', monospace; }
+  input::placeholder { color: #3f3f46; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #111; }
+  ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  .row-hover:hover td { background: #111115 !important; }
+  .fade-in { animation: fadeIn 0.2s ease; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const INITIAL = [
+  { id:1, name:"藍芽耳機",   sku:"SKU-001", category:"電子產品", stock:42,  minStock:20, price:1290,  unit:"個" },
+  { id:2, name:"機械鍵盤",   sku:"SKU-002", category:"電子產品", stock:8,   minStock:15, price:2890,  unit:"個" },
+  { id:3, name:"辦公椅",     sku:"SKU-003", category:"家具",     stock:3,   minStock:5,  price:6500,  unit:"張" },
+  { id:4, name:"A4 影印紙",  sku:"SKU-004", category:"文具",     stock:120, minStock:50, price:85,    unit:"包" },
+  { id:5, name:"無線滑鼠",   sku:"SKU-005", category:"電子產品", stock:0,   minStock:10, price:590,   unit:"個" },
+  { id:6, name:"白板筆",     sku:"SKU-006", category:"文具",     stock:67,  minStock:30, price:45,    unit:"盒" },
+  { id:7, name:"筆記型電腦", sku:"SKU-007", category:"電子產品", stock:12,  minStock:8,  price:32000, unit:"台" },
+  { id:8, name:"辦公桌",     sku:"SKU-008", category:"家具",     stock:6,   minStock:3,  price:8800,  unit:"張" },
+];
+
+const CATS = ["全部","電子產品","家具","文具"];
+const STATUS = {
+  ok:       { label:"充足", color:"#22c55e", bg:"#052e16" },
+  low:      { label:"偏低", color:"#f59e0b", bg:"#1c1400" },
+  critical: { label:"危險", color:"#ef4444", bg:"#1c0000" },
+  out:      { label:"缺貨", color:"#a855f7", bg:"#1a0030" },
+};
+
+function getStatus(stock, min) {
+  if (stock === 0) return "out";
+  if (stock < min * 0.5) return "critical";
+  if (stock < min) return "low";
+  return "ok";
+}
+
+const S = {
+  topBar:  { background:"#111113", borderBottom:"1px solid #27272a", padding:"16px 28px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100 },
+  logo:    { fontSize:17, fontWeight:700, letterSpacing:"0.08em", color:"#fff", display:"flex", alignItems:"center", gap:10 },
+  dot:     { width:8, height:8, borderRadius:"50%", background:"#22c55e", boxShadow:"0 0 8px #22c55e", animation:"pulse 2s infinite", flexShrink:0 },
+  main:    { padding:"24px 28px", maxWidth:1200, margin:"0 auto" },
+  kpiRow:  { display:"flex", gap:14, marginBottom:24, flexWrap:"wrap" },
+  kpi:     (accent) => ({ flex:"1 1 160px", background:"#111113", border:`1px solid ${accent||"#27272a"}`, borderRadius:8, padding:"18px 22px" }),
+  kLabel:  { fontSize:11, color:"#71717a", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:8 },
+  kVal:    (c) => ({ fontSize:26, fontWeight:700, color: c||"#fff" }),
+  kSub:    { fontSize:12, color:"#52525b", marginTop:4 },
+  toolbar: { display:"flex", gap:10, marginBottom:18, alignItems:"center", flexWrap:"wrap" },
+  input:   { background:"#18181b", border:"1px solid #27272a", borderRadius:6, color:"#e4e4e7", padding:"8px 13px", fontSize:13, outline:"none" },
+  select:  { background:"#18181b", border:"1px solid #27272a", borderRadius:6, color:"#e4e4e7", padding:"8px 13px", fontSize:13, outline:"none", cursor:"pointer" },
+  btn:     { background:"#fff", color:"#000", border:"none", borderRadius:6, padding:"8px 18px", fontSize:13, fontWeight:700, cursor:"pointer", letterSpacing:"0.04em" },
+  btnG:    { background:"transparent", color:"#a1a1aa", border:"1px solid #27272a", borderRadius:6, padding:"6px 11px", fontSize:12, cursor:"pointer" },
+  btnD:    { background:"transparent", color:"#ef4444", border:"1px solid #27272a", borderRadius:6, padding:"6px 11px", fontSize:12, cursor:"pointer" },
+  tbl:     { width:"100%", borderCollapse:"collapse" },
+  th:      { textAlign:"left", padding:"10px 14px", fontSize:11, color:"#52525b", letterSpacing:"0.12em", textTransform:"uppercase", borderBottom:"1px solid #1f1f22" },
+  td:      { padding:"13px 14px", fontSize:13, borderBottom:"1px solid #18181b" },
+  badge:   (s) => ({ display:"inline-block", padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:700, letterSpacing:"0.06em", color:STATUS[s].color, background:STATUS[s].bg, border:`1px solid ${STATUS[s].color}33` }),
+  overlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.78)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200 },
+  modal:   { background:"#111113", border:"1px solid #27272a", borderRadius:10, padding:26, width:400, maxWidth:"92vw" },
+  mTitle:  { fontSize:15, fontWeight:700, marginBottom:18, color:"#fff" },
+  fLabel:  { fontSize:11, color:"#71717a", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6, display:"block" },
+  fInput:  { width:"100%", background:"#18181b", border:"1px solid #27272a", borderRadius:6, color:"#e4e4e7", padding:"9px 12px", fontSize:13, outline:"none", boxSizing:"border-box" },
+  pTrack:  { height:4, background:"#27272a", borderRadius:2, marginTop:6, overflow:"hidden" },
+};
+
+const EMPTY_FORM = { name:"", sku:"", category:"電子產品", stock:"", minStock:"", price:"", unit:"個" };
+
+function App() {
+  const [products, setProducts] = useState(() => {
+    try { const s = localStorage.getItem("inv"); return s ? JSON.parse(s) : INITIAL; } catch { return INITIAL; }
+  });
+  const [search, setSearch]     = useState("");
+  const [cat, setCat]           = useState("全部");
+  const [sortBy, setSortBy]     = useState("name");
+  const [modal, setModal]       = useState(null); // null | "add" | "edit" | "adjust"
+  const [editItem, setEditItem] = useState(null);
+  const [form, setForm]         = useState(EMPTY_FORM);
+  const [adjItem, setAdjItem]   = useState(null);
+  const [adjQty, setAdjQty]     = useState("");
+  const [toast, setToast]       = useState(null);
+
+  useEffect(() => {
+    try { localStorage.setItem("inv", JSON.stringify(products)); } catch {}
+  }, [products]);
+
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2200);
+  }
+
+  const filtered = products
+    .filter(p => cat === "全部" || p.category === cat)
+    .filter(p => p.name.includes(search) || p.sku.toLowerCase().includes(search.toLowerCase()))
+    .sort((a,b) => sortBy === "stock" ? a.stock - b.stock : sortBy === "price" ? b.price - a.price : a.name.localeCompare(b.name,"zh"));
+
+  const totalVal = products.reduce((s,p) => s + p.stock * p.price, 0);
+  const lowCnt   = products.filter(p => getStatus(p.stock, p.minStock) !== "ok").length;
+  const outCnt   = products.filter(p => p.stock === 0).length;
+
+  function openAdd()    { setForm(EMPTY_FORM); setEditItem(null); setModal("add"); }
+  function openEdit(p)  { setForm({...p}); setEditItem(p); setModal("edit"); }
+  function openAdj(p)   { setAdjItem(p); setAdjQty(""); setModal("adjust"); }
+  function closeModal() { setModal(null); }
+
+  function saveForm() {
+    if (!form.name.trim() || !form.sku.trim()) return;
+    if (editItem) {
+      setProducts(ps => ps.map(p => p.id === editItem.id ? {...p,...form, stock:+form.stock, minStock:+form.minStock, price:+form.price} : p));
+      showToast("✓ 商品已更新");
+    } else {
+      setProducts(ps => [...ps, {...form, id:Date.now(), stock:+form.stock, minStock:+form.minStock, price:+form.price}]);
+      showToast("✓ 商品已新增");
+    }
+    closeModal();
+  }
+
+  function deleteItem(id) {
+    if (!confirm("確定要刪除這個商品嗎？")) return;
+    setProducts(ps => ps.filter(p => p.id !== id));
+    showToast("已刪除");
+  }
+
+  function applyAdj() {
+    const delta = parseInt(adjQty, 10);
+    if (isNaN(delta)) return;
+    setProducts(ps => ps.map(p => p.id === adjItem.id ? {...p, stock: Math.max(0, p.stock + delta)} : p));
+    showToast(`✓ 庫存已${delta >= 0 ? "增加" : "減少"} ${Math.abs(delta)} ${adjItem.unit}`);
+    closeModal();
+  }
+
+  function exportCSV() {
+    const header = "商品名稱,SKU,分類,單價,庫存量,安全庫存,單位,狀態";
+    const rows = products.map(p =>
+      `${p.name},${p.sku},${p.category},${p.price},${p.stock},${p.minStock},${p.unit},${STATUS[getStatus(p.stock,p.minStock)].label}`
+    );
+    const blob = new Blob(["\uFEFF"+[header,...rows].join("\n")], {type:"text/csv;charset=utf-8"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = "inventory.csv"; a.click();
+  }
+
+  const FormInput = ({label, fkey, type="text"}) => (
+    <div style={{marginBottom:13}}>
+      <label style={S.fLabel}>{label}</label>
+      <input style={S.fInput} type={type} value={form[fkey]} onChange={e=>setForm(f=>({...f,[fkey]:e.target.value}))}/>
+    </div>
+  );
+
+  return (
+    <div style={{minHeight:"100vh"}}>
+      {/* Top Bar */}
+      <div style={S.topBar}>
+        <div style={S.logo}>
+          <div style={S.dot}/>
+          庫存控管系統
+        </div>
+        <div style={{display:"flex", gap:10, alignItems:"center"}}>
+          <span style={{fontSize:12, color:"#52525b"}}>{products.length} 項商品</span>
+          <button style={S.btnG} onClick={exportCSV}>↓ 匯出 CSV</button>
+        </div>
+      </div>
+
+      <div style={S.main}>
+        {/* KPI */}
+        <div style={S.kpiRow}>
+          <div style={S.kpi()}>
+            <div style={S.kLabel}>庫存總價值</div>
+            <div style={S.kVal()}>NT$ {totalVal.toLocaleString()}</div>
+            <div style={S.kSub}>所有商品加總</div>
+          </div>
+          <div style={S.kpi()}>
+            <div style={S.kLabel}>商品種類</div>
+            <div style={S.kVal()}>{products.length}</div>
+            <div style={S.kSub}>SKU 數量</div>
+          </div>
+          <div style={S.kpi(lowCnt > 0 ? "#f59e0b44" : undefined)}>
+            <div style={S.kLabel}>庫存異常</div>
+            <div style={S.kVal(lowCnt > 0 ? "#f59e0b" : undefined)}>{lowCnt}</div>
+            <div style={S.kSub}>需要補貨的品項</div>
+          </div>
+          <div style={S.kpi(outCnt > 0 ? "#ef444444" : undefined)}>
+            <div style={S.kLabel}>缺貨品項</div>
+            <div style={S.kVal(outCnt > 0 ? "#ef4444" : undefined)}>{outCnt}</div>
+            <div style={S.kSub}>庫存為零</div>
+          </div>
+        </div>
+
+        {/* Toolbar */}
+        <div style={S.toolbar}>
+          <input style={{...S.input, width:210}} placeholder="搜尋名稱 / SKU…" value={search} onChange={e=>setSearch(e.target.value)}/>
+          <select style={S.select} value={cat} onChange={e=>setCat(e.target.value)}>
+            {CATS.map(c=><option key={c}>{c}</option>)}
+          </select>
+          <select style={S.select} value={sortBy} onChange={e=>setSortBy(e.target.value)}>
+            <option value="name">排序：名稱</option>
+            <option value="stock">排序：庫存量</option>
+            <option value="price">排序：單價</option>
+          </select>
+          <div style={{flex:1}}/>
+          <button style={S.btn} onClick={openAdd}>+ 新增商品</button>
+        </div>
+
+        {/* Table */}
+        <div style={{background:"#111113", border:"1px solid #1f1f22", borderRadius:8, overflow:"auto"}}>
+          <table style={S.tbl}>
+            <thead>
+              <tr>
+                {["商品名稱","SKU","分類","單價","庫存量","安全庫存","狀態","操作"].map(h=>
+                  <th key={h} style={S.th}>{h}</th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(p => {
+                const st = getStatus(p.stock, p.minStock);
+                const pct = Math.min(100, (p.stock / (p.minStock * 2)) * 100);
+                return (
+                  <tr key={p.id} className="row-hover">
+                    <td style={S.td}><span style={{fontWeight:600, color:"#fff"}}>{p.name}</span></td>
+                    <td style={{...S.td, color:"#52525b", fontSize:12}}>{p.sku}</td>
+                    <td style={S.td}>
+                      <span style={{fontSize:12, color:"#a1a1aa", background:"#1f1f22", padding:"3px 8px", borderRadius:4}}>{p.category}</span>
+                    </td>
+                    <td style={{...S.td, color:"#a1a1aa"}}>NT$ {p.price.toLocaleString()}</td>
+                    <td style={S.td}>
+                      <div style={{color:STATUS[st].color, fontWeight:700}}>{p.stock} {p.unit}</div>
+                      <div style={S.pTrack}>
+                        <div style={{height:"100%", width:`${pct}%`, background:STATUS[st].color, borderRadius:2, transition:"width 0.4s"}}/>
+                      </div>
+                    </td>
+                    <td style={{...S.td, color:"#52525b"}}>{p.minStock} {p.unit}</td>
+                    <td style={S.td}><span style={S.badge(st)}>{STATUS[st].label}</span></td>
+                    <td style={S.td}>
+                      <div style={{display:"flex", gap:6}}>
+                        <button style={S.btnG} onClick={()=>openAdj(p)}>調整</button>
+                        <button style={S.btnG} onClick={()=>openEdit(p)}>編輯</button>
+                        <button style={S.btnD} onClick={()=>deleteItem(p.id)}>刪除</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {filtered.length === 0 &&
+                <tr><td colSpan={8} style={{...S.td, textAlign:"center", color:"#3f3f46", padding:40}}>沒有符合的商品</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Add / Edit Modal */}
+      {(modal === "add" || modal === "edit") && (
+        <div style={S.overlay} onClick={closeModal}>
+          <div className="fade-in" style={S.modal} onClick={e=>e.stopPropagation()}>
+            <div style={S.mTitle}>{modal === "edit" ? "編輯商品" : "新增商品"}</div>
+            <FormInput label="商品名稱" fkey="name"/>
+            <FormInput label="SKU 編號" fkey="sku"/>
+            <FormInput label="單位（個/張/包…）" fkey="unit"/>
+            <FormInput label="單價 (NT$)" fkey="price" type="number"/>
+            <FormInput label="庫存量" fkey="stock" type="number"/>
+            <FormInput label="安全庫存（低於此數量警示）" fkey="minStock" type="number"/>
+            <div style={{marginBottom:13}}>
+              <label style={S.fLabel}>分類</label>
+              <select style={{...S.fInput, cursor:"pointer"}} value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>
+                {CATS.filter(c=>c!=="全部").map(c=><option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div style={{display:"flex", gap:10, marginTop:18}}>
+              <button style={S.btn} onClick={saveForm}>儲存</button>
+              <button style={S.btnG} onClick={closeModal}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Adjust Modal */}
+      {modal === "adjust" && adjItem && (
+        <div style={S.overlay} onClick={closeModal}>
+          <div className="fade-in" style={S.modal} onClick={e=>e.stopPropagation()}>
+            <div style={S.mTitle}>調整庫存：{adjItem.name}</div>
+            <div style={{color:"#71717a", fontSize:13, marginBottom:16}}>
+              目前庫存：<span style={{color:"#fff", fontWeight:700}}>{adjItem.stock} {adjItem.unit}</span>
+            </div>
+            <label style={S.fLabel}>調整數量（入庫填正數 +10，出庫填負數 -5）</label>
+            <input style={S.fInput} type="number" placeholder="例如：10 或 -5"
+              value={adjQty} onChange={e=>setAdjQty(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&applyAdj()}/>
+            <div style={{display:"flex", gap:10, marginTop:18}}>
+              <button style={S.btn} onClick={applyAdj}>確認調整</button>
+              <button style={S.btnG} onClick={closeModal}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className="fade-in" style={{position:"fixed", bottom:28, left:"50%", transform:"translateX(-50%)", background:"#18181b", border:"1px solid #27272a", borderRadius:8, padding:"12px 24px", fontSize:13, color:"#e4e4e7", zIndex:300, whiteSpace:"nowrap"}}>
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
