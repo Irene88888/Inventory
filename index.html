@@ -354,9 +354,6 @@
   </div>
 </nav>
 
-<!-- Sub-header with tabs -->
-<div class="subheader">
-  <div class="subheader-info">資料更新時間：<span id="update-time"></span></div>
   <div class="tab-nav">
     <div class="tab-item active">📊 總覽</div>
     <div class="tab-item">📋 存貨列表</div>
@@ -566,8 +563,6 @@ function ATTR_CLASS_MAP_CLEAR() {
 
 function init() {
   // Timestamp
-  document.getElementById('update-time').textContent = new Date().toLocaleString('zh-TW');
-
   // Group initial data (同品項+倉庫+屬性 加總)
   const grouped = rebuildData(RAW_DATA.table);
   Object.assign(RAW_DATA, grouped);
