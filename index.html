@@ -471,13 +471,23 @@ function handleUpload(event) {
     try {
       const wb = XLSX.read(e.target.result, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws);
+      // Read with raw option to handle header rows; trim all keys
+      const rawRows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+      // Normalize keys: trim whitespace and BOM characters
+      const rows = rawRows.map(r => {
+        const normalized = {};
+        for (const k of Object.keys(r)) {
+          normalized[k.trim().replace(/^﻿/, '')] = r[k];
+        }
+        return normalized;
+      });
 
       const requiredCols = ['產品名稱', '庫存數量', '基本單位名稱', '倉庫名稱', '存貨屬性', '金額'];
       const cols = Object.keys(rows[0] || {});
       const missing = requiredCols.filter(c => !cols.includes(c));
       if (missing.length > 0) {
-        statusEl.textContent = '欄位錯誤：缺少 ' + missing.join('、');
+        statusEl.textContent = '欄位錯誤：缺少 ' + missing.join('、') + '（實際欄位：' + cols.slice(0,6).join('、') + '）';
         statusEl.className = 'upload-status error';
         return;
       }
@@ -736,11 +746,10 @@ init();
 
 <!-- Sticky Upload Footer -->
 <div class="upload-bar">
-  <span class="upload-label">📂 資料來源：</span>
   <button class="upload-btn" onclick="document.getElementById('file-input').click()">
-    ⬆ 上傳最新 Excel
+    ⬆ 上傳最新庫存明細
   </button>
-  <input type="file" id="file-input" accept=".xlsx,.xls" onchange="handleUpload(event)">
+  <input type="file" id="file-input" accept=".xlsx,.xls" onchange="handleUpload(event)" style="display:none;width:0;height:0;opacity:0;position:absolute">
   <span class="upload-status" id="upload-status"></span>
   <span style="margin-left:auto;font-size:12px;color:#aaa" id="upload-time"></span>
 </div>
