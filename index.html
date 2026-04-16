@@ -557,17 +557,24 @@ async function loadFromGoogleSheets() {
 
     const requiredCols = ['產品名稱', '庫存數量', '基本單位名稱', '倉庫名稱', '存貨屬性', '金額'];
     const missing = requiredCols.filter(c => !cols.includes(c));
-    if (missing.length > 0) throw new Error('缺少欄位：' + missing.join('、'));
+    if (missing.length > 0) throw new Error('缺少欄位：' + missing.join('、') + '（實際欄位：' + cols.slice(0,8).join('、') + '）');
+
+    // 相容「期末單位成本」欄位名稱（ERP 系統輸出）
+    rows.forEach(r => {
+      if (r['期末單位成本'] !== undefined && r['單位成本'] === undefined) {
+        r['單位成本'] = r['期末單位成本'];
+      }
+    });
 
     const newData = rebuildData(rows);
     Object.assign(RAW_DATA, newData);
     filteredData = [...RAW_DATA.table];
 
-    statusEl.textContent = `✓ 資料已同步（${rows.length.toLocaleString()} 筆）`;
+    statusEl.textContent = `✓ 資料已同步（${rows.length.toLocaleString()} 筆原始 → ${RAW_DATA.table.length.toLocaleString()} 筆合併）`;
     timeEl.textContent = new Date().toLocaleString('zh-TW');
     return true;
   } catch(err) {
-    statusEl.textContent = '⚠ 無法連線 Google Sheets，顯示本機資料';
+    statusEl.textContent = '⚠ Google Sheets 讀取失敗：' + err.message;
     statusEl.className = 'upload-status error';
     return false;
   }
