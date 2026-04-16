@@ -548,23 +548,48 @@ async function loadFromGoogleSheets() {
     const jsonStr = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
     const data = JSON.parse(jsonStr);
 
-    const cols = data.table.cols.map(c => c.label.trim());
+    // 讀取欄位名稱（label 可能為空，fallback 到 id）
+    const cols = data.table.cols.map(c => (c.label || '').trim() || c.id);
+
+    // 建立欄位名稱對應表（支援多種 ERP 欄位名稱與欄位代號）
+    const COL_ALIASES = {
+      '產品名稱':   ['產品名稱', 'D'],
+      '庫存數量':   ['庫存數量', 'F'],
+      '基本單位名稱': ['基本單位名稱', 'G'],
+      '倉庫名稱':   ['倉庫名稱', 'H'],
+      '存貨屬性':   ['存貨屬性', 'M', 'L'],   // 新版在M，舊版在L
+      '單位成本':   ['單位成本', '期末單位成本', 'N', 'M'], // 新版在N，舊版在M
+      '金額':      ['金額', 'O', 'N'],         // 新版在O，舊版在N
+    };
+
+    // 找出每個目標欄位在 cols 陣列中的 index
+    const colIdx = {};
+    for (const [target, aliases] of Object.entries(COL_ALIASES)) {
+      const found = aliases.find(a => cols.includes(a));
+      if (found) colIdx[target] = cols.indexOf(found);
+    }
+
+    const required = ['產品名稱', '庫存數量', '基本單位名稱', '倉庫名稱', '存貨屬性', '金額'];
+    const missing = required.filter(k => colIdx[k] === undefined);
+    if (missing.length > 0) throw new Error('找不到欄位：' + missing.join('、') + '。實際欄位：' + cols.join('、'));
+
     const rows = data.table.rows.map(row => {
-      const obj = {};
-      row.c.forEach((cell, i) => { obj[cols[i]] = cell ? cell.v : null; });
-      return obj;
-    });
-
-    const requiredCols = ['產品名稱', '庫存數量', '基本單位名稱', '倉庫名稱', '存貨屬性', '金額'];
-    const missing = requiredCols.filter(c => !cols.includes(c));
-    if (missing.length > 0) throw new Error('缺少欄位：' + missing.join('、') + '（實際欄位：' + cols.slice(0,8).join('、') + '）');
-
-    // 相容「期末單位成本」欄位名稱（ERP 系統輸出）
-    rows.forEach(r => {
-      if (r['期末單位成本'] !== undefined && r['單位成本'] === undefined) {
-        r['單位成本'] = r['期末單位成本'];
-      }
-    });
+      const get = (key) => {
+        const i = colIdx[key];
+        if (i === undefined) return null;
+        const cell = row.c[i];
+        return cell ? cell.v : null;
+      };
+      return {
+        '產品名稱': get('產品名稱') || '',
+        '庫存數量': parseFloat(get('庫存數量')) || 0,
+        '基本單位名稱': get('基本單位名稱') || '',
+        '倉庫名稱': get('倉庫名稱') || '',
+        '存貨屬性': get('存貨屬性') || '',
+        '單位成本': parseFloat(get('單位成本')) || 0,
+        '金額': parseFloat(get('金額')) || 0,
+      };
+    }).filter(r => r['產品名稱']);  // 過濾空行
 
     const newData = rebuildData(rows);
     Object.assign(RAW_DATA, newData);
