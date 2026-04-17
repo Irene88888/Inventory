@@ -819,7 +819,7 @@ function renderPagination(totalPages) {
   btn('›', currentPage+1, currentPage===totalPages, false);
 }
 
-init();
+document.addEventListener('DOMContentLoaded', init);
 </script>
 
 <!-- Sticky Upload Footer -->
