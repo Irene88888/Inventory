@@ -1146,14 +1146,14 @@ async function init(){
   var D30=new Date(T);D30.setDate(D30.getDate()+30);D30.setHours(23,59,59,999);
   var DAYS=['日','一','二','三','四','五','六'];
 
-  // 平行載入：快取 + 覆蓋 + 已處理（同時發出，不等待）
+  // 平行載入：快取 + 覆蓋 + 已處理（個別失敗不影響其他）
   var [cachedData, overrides, doneMap] = await Promise.all([
-    fetchCachedData(),
-    fetchOverrides(),
-    fetchDoneMap()
+    fetchCachedData().catch(function(){return null;}),
+    fetchOverrides().catch(function(){return {};}),
+    fetchDoneMap().catch(function(){return {};})
   ]);
-  _overrideMap = overrides;
-  _doneMap = doneMap;
+  _overrideMap = overrides || {};
+  _doneMap = doneMap || {};
 
   document.getElementById('hDate').textContent=fmt(T)+' （今日）';
   document.getElementById('label-today').textContent=fmt(T);
@@ -1165,27 +1165,32 @@ async function init(){
 
   var dbg=[];
 
-  // 讀取資料（優先用快取，快取失效則直接讀 CSV，三份平行發出）
+  // 資料載入：三份 CSV 平行讀取（快取作為加速備用，失敗不影響資料）
   var arRows=[],arFields=[],apRows=[],apFields=[],purchRows=[],purchFields=[];
 
-  if(cachedData && cachedData.ar && cachedData.ar.length){
-    // 使用快取資料（跨裝置，每5分鐘更新）
-    arRows=cachedData.ar; arFields=Object.keys(arRows[0]||{});
-    apRows=cachedData.ap; apFields=Object.keys(apRows[0]||{});
+  // 先嘗試快取
+  var usedCache = false;
+  if(cachedData && cachedData.ar && cachedData.ar.length && cachedData.purch && cachedData.purch.length){
+    arRows=cachedData.ar;    arFields=Object.keys(arRows[0]||{});
+    apRows=cachedData.ap||[]; apFields=Object.keys(apRows[0]||{});
     purchRows=cachedData.purch; purchFields=Object.keys(purchRows[0]||{});
+    usedCache=true;
     dbg.push('[快取] ✅ 應收'+arRows.length+'列 應付'+apRows.length+'列 採購'+purchRows.length+'列');
     dbg.push('[快取] 建立時間：'+(cachedData.builtAt||'未知'));
-  }else{
-    // 快取無效，平行讀取三份 CSV
-    var [res1,res2,res3]=await Promise.all([
-      fetchCSV(ID_AR,GID_AR,SKIP_ROWS).catch(function(e){dbg.push('[應收] ❌ '+e);return{fields:[],rows:[]};}),
-      fetchCSV(ID_AP,GID_AP,SKIP_ROWS).catch(function(e){dbg.push('[應付] ❌ '+e);return{fields:[],rows:[]};}),
-      fetchCSV(ID_PURCH,GID_PURCH,0).catch(function(e){dbg.push('[採購] ❌ '+e);return{fields:[],rows:[]};})
+  }
+
+  // 快取沒資料 or 不完整 → 直接平行讀取三份 CSV
+  if(!usedCache){
+    dbg.push('[CSV] 快取無效，直接讀取...');
+    var results = await Promise.all([
+      fetchCSV(ID_AR,GID_AR,SKIP_ROWS).catch(function(e){dbg.push('[應收] ❌ '+e.message);return{fields:[],rows:[]};}),
+      fetchCSV(ID_AP,GID_AP,SKIP_ROWS).catch(function(e){dbg.push('[應付] ❌ '+e.message);return{fields:[],rows:[]};}),
+      fetchCSV(ID_PURCH,GID_PURCH,0).catch(function(e){dbg.push('[採購] ❌ '+e.message);return{fields:[],rows:[]};})
     ]);
-    arFields=res1.fields;arRows=res1.rows;
-    apFields=res2.fields;apRows=res2.rows;
-    purchFields=res3.fields;purchRows=res3.rows;
-    dbg.push('[CSV] 應收'+arRows.length+'列 應付'+apRows.length+'列 採購'+purchRows.length+'列');
+    arFields=results[0].fields; arRows=results[0].rows;
+    apFields=results[1].fields; apRows=results[1].rows;
+    purchFields=results[2].fields; purchRows=results[2].rows;
+    dbg.push('[CSV] ✅ 應收'+arRows.length+'列 應付'+apRows.length+'列 採購'+purchRows.length+'列');
   }
 
   // 標記（Sheet 資料 + sessionStorage 即時覆蓋）
