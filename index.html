@@ -1283,7 +1283,18 @@ async function init(){
     +'<div class="dbg-title">應收欄位：</div><div class="dbg">'+(arFields.join(' | ')||'(無)')+'</div>'
     +'<div class="dbg-title">應收第1筆：</div><div class="dbg">'+JSON.stringify(arRows[0]||{},null,2)+'</div>'
     +'<div class="dbg-title">應付欄位：</div><div class="dbg">'+(apFields.join(' | ')||'(無)')+'</div>'
-    +'<div class="dbg-title">應付第1筆：</div><div class="dbg">'+JSON.stringify(apRows[0]||{},null,2)+'</div>';
+    +'<div class="dbg-title">應付第1筆：</div><div class="dbg">'+JSON.stringify(apRows[0]||{},null,2)+'</div>'
+    +'<div class="dbg-title">_overrideMap（調整記錄）：</div><div class="dbg">'
+      +(Object.keys(_overrideMap).length===0
+        ?'（空）— 尚無調整記錄，或讀取失敗'
+        :Object.keys(_overrideMap).map(function(k){
+            var v=_overrideMap[k];
+            return 'KEY: '+k+'\n'
+              +'  原始日期: '+v.originDate+'  原始金額: '+v.originAmt+'\n'
+              +'  新日期: '+(v.newDate||'未改')+'  新金額: '+(v.newAmt||'未改')+'\n'
+              +'  說明: '+v.newNote+'  by: '+v.updatedBy;
+          }).join('\n\n'))
+      +'</div>';
 
   var validRows=purchRows.filter(function(r){return r[CASE_COL]&&r[CASE_COL].trim();});
 
