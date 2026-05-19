@@ -772,7 +772,12 @@ function applyOverride(ev){
       newAmtStr=(origCur?origCur+' ':'')+fmtN(n);
     }
   }
-  var newDate=ov.newDate?new Date(ov.newDate+'T00:00:00'):ev.date;
+  var newDate=ev.date;
+  if(ov.newDate){
+    // newDate 是純文字 YYYY-MM-DD，去掉可能的單引號前綴
+    var nd=parseDate(String(ov.newDate).replace(/^'/,''));
+    if(nd)newDate=nd;
+  }
   return{name:ev.name,amt:newAmtStr,date:newDate,adjusted:true,key:k};
 }
 
@@ -1305,7 +1310,7 @@ async function init(){
     // 保留原始日期，再套用調整後日期
     ev.originDate=ev.date;
     var ov=_overrideMap[mkDoneKey(ev)];
-    if(ov&&ov.newDate){var nd=parseDate(ov.newDate);if(nd)ev.date=nd;}
+    if(ov&&ov.newDate){var nd=parseDate(String(ov.newDate).replace(/^'/,''));if(nd)ev.date=nd;}
     if(ev.stat&&ev.stat.includes('預估')){
       ev.isEstimate=true;
       estimateAR.push(ev);
@@ -1330,7 +1335,7 @@ async function init(){
     // 保留原始日期，再套用調整後日期
     ev.originDate=ev.date;
     var ov=_overrideMap[mkDoneKey(ev)];
-    if(ov&&ov.newDate){var nd=parseDate(ov.newDate);if(nd)ev.date=nd;}
+    if(ov&&ov.newDate){var nd=parseDate(String(ov.newDate).replace(/^'/,''));if(nd)ev.date=nd;}
     if(ev.stat&&ev.stat.includes('預估')){
       ev.isEstimate=true;
       estimateAP.push(ev);
