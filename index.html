@@ -434,12 +434,35 @@ function getTomorrow(){var d=getToday();d.setDate(d.getDate()+1);return d;}
 function parseDate(v){
   if(!v)return null;
   var s=String(v).trim();if(!s)return null;
-  var dp=s.split(' ')[0].replace(/\//g,'-');
+
+  // 格式1：2026/5/31 或 2026-05-31（標準格式，最優先）
+  var dp=s.split('T')[0].split(' ')[0].replace(/\//g,'-');
   var p=dp.split('-');
-  if(p.length===3){
-    var d=new Date(p[0].padStart(4,'0')+'-'+p[1].padStart(2,'0')+'-'+p[2].padStart(2,'0')+'T00:00:00');
-    return isNaN(d.getTime())?null:d;
+  if(p.length===3&&p[0].length===4){
+    var y=parseInt(p[0]),mo=parseInt(p[1])-1,d=parseInt(p[2]);
+    if(!isNaN(y)&&!isNaN(mo)&&!isNaN(d)){
+      var dt=new Date(y,mo,d);
+      if(!isNaN(dt.getTime()))return dt;
+    }
   }
+
+  // 格式2：Apps Script 快取格式
+  // "Sun May 31 2026 00:00:00 GMT+0800（台北標準時間）"
+  var MONTHS={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+  var m=s.match(/(\w{3})\s+(\d{1,2})\s+(\d{4})/);
+  if(m&&MONTHS[m[1]]!==undefined){
+    // 用本地時間建立，避免時區問題
+    var dt2=new Date(parseInt(m[3]),MONTHS[m[1]],parseInt(m[2]));
+    if(!isNaN(dt2.getTime()))return dt2;
+  }
+
+  // 格式3：ISO 字串 2026-05-31T00:00:00.000Z → 轉成本地日期
+  var isoM=s.match(/^(\d{4})-(\d{2})-(\d{2})T/);
+  if(isoM){
+    var dt3=new Date(parseInt(isoM[1]),parseInt(isoM[2])-1,parseInt(isoM[3]));
+    if(!isNaN(dt3.getTime()))return dt3;
+  }
+
   return null;
 }
 function sameDay(a,b){if(!a||!b)return false;return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();}
@@ -1174,9 +1197,20 @@ async function init(){
     arRows=cachedData.ar;    arFields=Object.keys(arRows[0]||{});
     apRows=cachedData.ap||[]; apFields=Object.keys(apRows[0]||{});
     purchRows=cachedData.purch; purchFields=Object.keys(purchRows[0]||{});
+    // 過濾掉空欄位名稱的 key（Apps Script 可能產生 "":{} 的空欄位）
+    arRows=arRows.map(function(r){var o={};Object.keys(r).forEach(function(k){if(k.trim())o[k]=r[k];});return o;});
+    apRows=apRows.map(function(r){var o={};Object.keys(r).forEach(function(k){if(k.trim())o[k]=r[k];});return o;});
+    purchRows=purchRows.map(function(r){var o={};Object.keys(r).forEach(function(k){if(k.trim())o[k]=r[k];});return o;});
     usedCache=true;
     dbg.push('[快取] ✅ 應收'+arRows.length+'列 應付'+apRows.length+'列 採購'+purchRows.length+'列');
     dbg.push('[快取] 建立時間：'+(cachedData.builtAt||'未知'));
+    // 驗證：檢查欄位是否包含日期欄
+    var arHasDate=arFields.indexOf(DATE_COL_AR)>=0||arRows[0]&&arRows[0][DATE_COL_AR]!==undefined;
+    var apHasDate=apFields.indexOf(DATE_COL_AP)>=0||apRows[0]&&apRows[0][DATE_COL_AP]!==undefined;
+    if(!arHasDate||!apHasDate){
+      dbg.push('[快取] ⚠️ 欄位對應異常（AR:'+DATE_COL_AR+'='+(arHasDate?'✅':'❌')+' AP:'+DATE_COL_AP+'='+(apHasDate?'✅':'❌')+'），改用 CSV');
+      usedCache=false;arRows=[];apRows=[];purchRows=[];
+    }
   }
 
   // 快取沒資料 or 不完整 → 直接平行讀取三份 CSV
