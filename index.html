@@ -563,10 +563,9 @@ async function saveAdjust() {
   status.textContent = '儲存中...';
 
   if (!OVERRIDE_API_URL) {
-    // 無 API：僅本地
     _overrideMap[key] = {
       originName: ev.name, originDate: fmt(ev.date),
-      originAmt: ev.amtStr, originCur: '',
+      originAmt: ev.amtStr, originCur: Object.keys(ev.amtMap||{})[0]||'',
       newDate:  document.getElementById('adj-date').value,
       newAmt:   document.getElementById('adj-amt').value,
       newNote:  note, updatedBy: by,
@@ -578,6 +577,8 @@ async function saveAdjust() {
   }
 
   try {
+    var newDate = document.getElementById('adj-date').value;
+    var newAmt  = document.getElementById('adj-amt').value;
     var p = new URLSearchParams({
       action: 'override_set',
       originKey:  encodeURIComponent(key),
@@ -585,17 +586,25 @@ async function saveAdjust() {
       originDate: fmt(ev.date),
       originAmt:  ev.amtStr || '',
       originCur:  Object.keys(ev.amtMap || {})[0] || '',
-      newDate:    document.getElementById('adj-date').value,
-      newAmt:     document.getElementById('adj-amt').value,
+      newDate:    newDate,
+      newAmt:     newAmt,
       newNote:    encodeURIComponent(note),
       updatedBy:  encodeURIComponent(by)
     });
     var res = await fetch(OVERRIDE_API_URL + '?' + p.toString());
     var json = await res.json();
     if (json.status !== 'ok') throw new Error(json.message || '失敗');
+    // 立即更新本地 _overrideMap，不等 init() 重新 fetch
+    _overrideMap[key] = {
+      originName: ev.name, originDate: fmt(ev.date),
+      originAmt: ev.amtStr, originCur: Object.keys(ev.amtMap||{})[0]||'',
+      newDate: newDate, newAmt: newAmt,
+      newNote: note, updatedBy: by,
+      updatedAt: new Date().toLocaleString('zh-TW')
+    };
     status.style.color = 'var(--green)';
     status.textContent = '✅ 已儲存';
-    setTimeout(function() { closeAdjModal(); init(); }, 800);
+    setTimeout(function() { closeAdjModal(); init(); }, 500);
   } catch(e) {
     status.style.color = 'var(--red)';
     status.textContent = '❌ ' + e.message;
@@ -1280,10 +1289,12 @@ async function init(){
   var todayAR=[],tmrAR=[],weekAR=[],nxtwkAR=[],overdueAR=[],estimateAR=[],future30AR=[];
   arRows.forEach(function(r){
     var ev=parseStatRow(r,'AR',DATE_COL_AR);if(!ev)return;
+    // 套用調整後日期（影響分類位置）
+    var ov=_overrideMap[mkDoneKey(ev)];
+    if(ov&&ov.newDate){var nd=parseDate(ov.newDate);if(nd)ev.date=nd;}
     if(ev.stat&&ev.stat.includes('預估')){
       ev.isEstimate=true;
       estimateAR.push(ev);
-      // 同時併入時間軸
       if(sameDay(ev.date,T))todayAR.push(ev);
       else if(sameDay(ev.date,TM))tmrAR.push(ev);
       else if(inWeek(ev.date,WK_MON,WK_SUN))weekAR.push(ev);
@@ -1302,10 +1313,12 @@ async function init(){
   var todayAP=[],tmrAP=[],weekAP=[],nxtwkAP=[],overdueAP=[],estimateAP=[],future30AP=[];
   apRows.forEach(function(r){
     var ev=parseStatRow(r,'AP',DATE_COL_AP);if(!ev)return;
+    // 套用調整後日期（影響分類位置）
+    var ov=_overrideMap[mkDoneKey(ev)];
+    if(ov&&ov.newDate){var nd=parseDate(ov.newDate);if(nd)ev.date=nd;}
     if(ev.stat&&ev.stat.includes('預估')){
       ev.isEstimate=true;
       estimateAP.push(ev);
-      // 同時併入時間軸
       if(sameDay(ev.date,T))todayAP.push(ev);
       else if(sameDay(ev.date,TM))tmrAP.push(ev);
       else if(inWeek(ev.date,WK_MON,WK_SUN))weekAP.push(ev);
