@@ -613,7 +613,7 @@ function showOrigTooltip(ev, originKey) {
     + '<div class="ot-row"><span class="ot-label">金額</span><span>' + (o.originAmt  || '-') + '</span></div>'
     + '<div class="ot-title" style="margin-top:6px;">✏️ 調整內容</div>'
     + (o.newDate ? '<div class="ot-row"><span class="ot-label">新日期</span><span>' + o.newDate + '</span></div>' : '')
-    + (o.newAmt  ? '<div class="ot-row"><span class="ot-label">新金額</span><span>' + o.newAmt  + '</span></div>' : '')
+    + (o.newAmt  ? '<div class="ot-row"><span class="ot-label">新金額</span><span>' + (function(){var n=parseFloat(String(o.newAmt).replace(/[^0-9.-]/g,''));return isNaN(n)?o.newAmt:fmtN(n);})() + '</span></div>' : '')
     + '<div class="ot-row"><span class="ot-label">說明</span><span>' + (o.newNote || '-') + '</span></div>'
     + '<div class="ot-row"><span class="ot-label">調整人</span><span>' + (o.updatedBy || '-') + '</span></div>';
   tip.style.display = 'block';
@@ -748,14 +748,21 @@ function goTab(n){
 
 // ══ 事件 HTML ══════════════════════════════════════
 function applyOverride(ev){
-  // 套用覆蓋值，回傳顯示用的 {name,amt,date,adjusted}
   var k=mkDoneKey(ev);
   var ov=_overrideMap[k];
   if(!ov)return{name:ev.name,amt:ev.amtStr,date:ev.date,adjusted:false};
-  var newName=ev.name; // 名稱不改，主管要知道來源
-  var newAmt=ov.newAmt?ov.newAmt+' (調整)':ev.amtStr;
+  // 新金額：加千分位 + 保留原始幣別
+  var newAmtStr=ev.amtStr;
+  if(ov.newAmt){
+    var n=parseFloat(String(ov.newAmt).replace(/[^0-9.-]/g,''));
+    if(!isNaN(n)){
+      // 取原始幣別（從 amtMap 取第一個幣別）
+      var origCur=Object.keys(ev.amtMap||{})[0]||'';
+      newAmtStr=(origCur?origCur+' ':'')+fmtN(n);
+    }
+  }
   var newDate=ov.newDate?new Date(ov.newDate+'T00:00:00'):ev.date;
-  return{name:newName,amt:newAmt,date:newDate,adjusted:true,key:k};
+  return{name:ev.name,amt:newAmtStr,date:newDate,adjusted:true,key:k};
 }
 
 function evHTML(tag,name,amt,isEst,ev){
@@ -826,21 +833,38 @@ function mkOdZip(evts,tag){
     var total=cur==='X'?0:cEvts.reduce(function(s,e){return s+(e.amtMap[cur]||0);},0);
     var id='od'+tag+cur+ci;
     var rows=cEvts.map(function(e){
-      var da=cur==='X'?e.amtStr:(e.amtMap[cur]?cur+' '+fmtN(e.amtMap[cur]):'');
+      var ov=applyOverride(e);
+      // 顯示調整後金額，若有調整則優先用 ov.amt
+      var da=ov.adjusted?ov.amt:(cur==='X'?e.amtStr:(e.amtMap[cur]?cur+' '+fmtN(e.amtMap[cur]):''));
       var k=mkDoneKey(e);
+      var kEnc=encodeURIComponent(k);
+      var nEnc=encodeURIComponent(e.name||'');
       var dateStr=fmt(e.date);
-      var kE=k.replace(/'/g,'&#39;');
-      var nE=(e.name||'').replace(/'/g,'&#39;');
+      var evKey='_ev_'+k.replace(/[^a-zA-Z0-9]/g,'_');
+      window[evKey]=e;
+      var adjTag=_overrideMap[k]
+        ?'<span class="adj-badge" onmouseenter="showOrigTooltip(event,decodeURIComponent(\''+kEnc+'\'))" onmouseleave="hideOrigTooltip()">&#9999; 已調整</span>'
+        :'';
       return '<div class="od-row '+(tag==='AR'?'ar':'')+'" style="flex-wrap:wrap;gap:4px;">'
-        +'<span class="od-name">'+(e.name||'')+'</span>'
+        +'<span class="od-name">'+(e.name||'')+adjTag+'</span>'
         +'<span class="od-date">'+dateStr+'</span>'
         +(da?'<span class="od-damount">'+da+'</span>':'')
-        +'<button class="done-btn" onclick="markDone(\''+kE+'\',\''+tag+'\',\''+nE+'\',\''+dateStr+'\',\'\')">✓ 標記處理</button>'
+        +'<button class="done-btn" onclick="markDone(decodeURIComponent(\''+kEnc+'\'),\''+tag+'\',decodeURIComponent(\''+nEnc+'\'),\''+dateStr+'\',\'\')">&#10003; 處理</button>'
+        +'<button class="adj-btn" onclick="openAdjModal(window[\''+evKey+'\'])">&#9999; 調整</button>'
         +'</div>';
     }).join('');
+    // 重新計算加總（覆蓋後的金額）
+    var dispTotal=cur==='X'?0:cEvts.reduce(function(s,e){
+      var ov=applyOverride(e);
+      if(ov.adjusted&&ov.amt){
+        var n=parseFloat(String(ov.amt).replace(/[^0-9.-]/g,''));
+        return s+(isNaN(n)?0:n);
+      }
+      return s+(e.amtMap[cur]||0);
+    },0);
     html+='<div class="od-group"><div class="od-hdr" onclick="toggleOd(\''+id+'\')">'
       +'<div class="od-hdr-left"><span class="od-label '+tag.toLowerCase()+'">'+tgL+(cur!=='X'?' '+cur:'')+'</span>'
-      +(total>0?'<span class="od-amt">'+fmtN(total)+'</span>':'')
+      +(dispTotal>0?'<span class="od-amt">'+fmtN(dispTotal)+'</span>':'')
       +'<span class="od-cnt">'+cEvts.length+'筆</span></div>'
       +'<span class="od-arrow" id="oarr-'+id+'">▶</span></div>'
       +'<div class="od-body" id="'+id+'">'+rows+'</div></div>';
@@ -894,7 +918,8 @@ function mkWkRow(dateLabel,evts){
       var visEvts=cEvts.filter(function(e){return!_doneMap[mkDoneKey(e)];});
       if(!visEvts.length) return; // 全部已處理則跳過此幣別群組
       var deptHTML=visEvts.map(function(e){
-        var da=cur==='Z'?e.amtStr:(e.amtMap[cur]?cur+' '+fmtN(e.amtMap[cur]):'');
+        var ov=applyOverride(e);
+        var da=ov.adjusted?ov.amt:(cur==='Z'?e.amtStr:(e.amtMap[cur]?cur+' '+fmtN(e.amtMap[cur]):''));
         var estTag=e.isEstimate?'<span style="font-size:9px;background:rgba(88,166,255,.2);color:var(--blue);padding:1px 5px;border-radius:3px;margin-left:4px;">預估</span>':'';
         var k=mkDoneKey(e);
         var kEnc=encodeURIComponent(k);
@@ -932,18 +957,23 @@ function mkWkRow(dateLabel,evts){
 
 // ══ 今日/明日渲染 ════════════════════════════════════
 function renderDay(apArr,arArr){
-  // 過濾已處理
   var fAR=arArr.filter(function(e){return!_doneMap[mkDoneKey(e)];});
   var fAP=apArr.filter(function(e){return!_doneMap[mkDoneKey(e)];});
   if(!fAP.length&&!fAR.length)return'<div class="empty">✅ 無應收付事件</div>';
   var h='';
   if(fAR.length){
     h+='<div class="ev-sec-label ar">應收</div>';
-    h+=fAR.map(function(e){return evHTML(e.tag,e.name,e.amtStr,e.isEstimate,e);}).join('');
+    h+=fAR.map(function(e){
+      var ov=applyOverride(e);
+      return evHTML(e.tag,e.name,ov.amt,e.isEstimate,e);
+    }).join('');
   }
   if(fAP.length){
     h+='<div class="ev-sec-label ap" style="margin-top:'+(fAR.length?'10px':'4px')+'">應付</div>';
-    h+=fAP.map(function(e){return evHTML(e.tag,e.name,e.amtStr,e.isEstimate,e);}).join('');
+    h+=fAP.map(function(e){
+      var ov=applyOverride(e);
+      return evHTML(e.tag,e.name,ov.amt,e.isEstimate,e);
+    }).join('');
   }
   return h;
 }
