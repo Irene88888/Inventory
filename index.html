@@ -707,7 +707,9 @@ async function unmarkDone(key){
 }
 
 function mkDoneKey(ev){
-  return ev.tag+'|'+ev.name+'|'+fmt(ev.date);
+  // 永遠用原始日期作為 key，確保調整前後 key 一致
+  var d=ev.originDate||ev.date;
+  return ev.tag+'|'+ev.name+'|'+fmt(d);
 }
 
 // 自動重新整理（每5分鐘）
@@ -1289,7 +1291,8 @@ async function init(){
   var todayAR=[],tmrAR=[],weekAR=[],nxtwkAR=[],overdueAR=[],estimateAR=[],future30AR=[];
   arRows.forEach(function(r){
     var ev=parseStatRow(r,'AR',DATE_COL_AR);if(!ev)return;
-    // 套用調整後日期（影響分類位置）
+    // 保留原始日期，再套用調整後日期
+    ev.originDate=ev.date;
     var ov=_overrideMap[mkDoneKey(ev)];
     if(ov&&ov.newDate){var nd=parseDate(ov.newDate);if(nd)ev.date=nd;}
     if(ev.stat&&ev.stat.includes('預估')){
@@ -1313,7 +1316,8 @@ async function init(){
   var todayAP=[],tmrAP=[],weekAP=[],nxtwkAP=[],overdueAP=[],estimateAP=[],future30AP=[];
   apRows.forEach(function(r){
     var ev=parseStatRow(r,'AP',DATE_COL_AP);if(!ev)return;
-    // 套用調整後日期（影響分類位置）
+    // 保留原始日期，再套用調整後日期
+    ev.originDate=ev.date;
     var ov=_overrideMap[mkDoneKey(ev)];
     if(ov&&ov.newDate){var nd=parseDate(ov.newDate);if(nd)ev.date=nd;}
     if(ev.stat&&ev.stat.includes('預估')){
