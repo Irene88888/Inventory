@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PM 完整管理系統</title>
+<title>PM 管理系統</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -116,14 +116,14 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);}
 
 <!-- Ticker -->
 <div class="ticker-wrap">
-  <div class="ticker-pill">PM 完整系統</div>
+  <div class="ticker-pill">PM</div>
   <div class="ticker-area">
     <div class="ticker-track" id="ticker">
       <div class="ti"><span class="ti-tag ar">AR</span>應收: <strong id="ar-total">$0</strong></div>
       <div class="ti"><span class="ti-tag ap">AP</span>應付: <strong id="ap-total">$0</strong></div>
       <div class="ti"><span class="ti-tag etd">ETD</span>待出貨: <strong id="etd-cnt">0</strong></div>
       <div class="ti"><span class="ti-tag eta">ETA</span>待到貨: <strong id="eta-cnt">0</strong></div>
-      <div class="ti">更新: <strong id="time-now">--:--</strong></div>
+      <div class="ti">更新: <strong id="time-now">--:--:--</strong></div>
     </div>
   </div>
 </div>
@@ -131,8 +131,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);}
 <!-- Header -->
 <div class="hdr">
   <div>
-    <div class="hdr-t">💰 PM 完整管理系統</div>
-    <div class="hdr-d">應收應付 + ETD/ETA追蹤 | <span id="hdr-time">--:--:--</span></div>
+    <div class="hdr-t">💰 PM</div>
+    <div class="hdr-d">應收應付 + ETD/ETA追蹤 | 更新於 <span id="hdr-time">--:--:--</span></div>
   </div>
   <div class="hdr-r">
     <input type="file" id="file-input" accept=".xlsx,.csv" style="display:none" onchange="handleFile(event)">
@@ -152,7 +152,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);}
 
 <!-- Dashboard -->
 <div id="dash" class="pane active">
-  <div style="margin-bottom:24px;padding:12px 16px;background:rgba(63,185,80,.1);border-radius:8px;border-left:3px solid var(--green);color:var(--green);font-weight:600;">✅ 系統運行正常</div>
+  <div style="margin-bottom:24px;padding:12px 16px;background:rgba(63,185,80,.1);border-radius:8px;border-left:3px solid var(--green);color:var(--green);font-weight:600;" id="status-banner">📊 最後更新: <strong id="last-update-time">--:--:--</strong></div>
   
   <!-- 逾期 -->
   <h3 style="margin:24px 0 16px;font-size:14px;color:var(--red);text-transform:uppercase;letter-spacing:.08em;font-weight:700;border-bottom:3px solid var(--red);padding-bottom:10px;">🔴 一. 逾期</h3>
@@ -378,51 +378,28 @@ function switchTab(t){
   if(t==='ship') renderShip();
 }
 
-// 自動從Google Sheets讀取數據（使用Sheets API CSV匯出）
+// 自動從Google Sheets讀取數據（優化版）
 async function loadFromGoogleSheets(){
   try{
     document.getElementById('status-banner').innerHTML = '⏳ 正在從Google Sheets讀取數據...';
     
-    // 使用多種方式嘗試讀取
-    let csv = null;
+    // CSV匯出URL
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${SHEET_GID}&t=${Date.now()}`;
     
-    // 方法1：直接CSV匯出URL
-    try{
-      const url1 = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${SHEET_GID}&t=${Date.now()}`;
-      const response = await fetch(url1, {
-        method: 'GET',
-        headers: {
-          'Accept': 'text/csv'
-        },
-        mode: 'no-cors'
-      });
-      if(response.ok){
-        csv = await response.text();
-      }
-    }catch(e1){
-      // 方法1失敗，嘗試方法2
-      console.log('方法1失敗，嘗試方法2...');
-      try{
-        const url2 = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Sheet1?alt=csv&key=AIzaSyDaRWJiuFqVOLIW-5dgZjNsXoToGl5wNVs`;
-        const response2 = await fetch(url2);
-        if(response2.ok){
-          csv = await response2.text();
-        }
-      }catch(e2){
-        console.log('方法2也失敗');
-      }
-    }
+    const response = await fetch(url);
+    if(!response.ok) throw new Error('HTTP ' + response.status);
     
-    if(csv && csv.length > 0){
-      parseCSV(csv);
-      updateUI();
-      document.getElementById('status-banner').innerHTML = '✅ 已從Google Sheets同步數據';
-    } else {
-      throw new Error('無法讀取Google Sheets');
-    }
+    const csv = await response.text();
+    if(!csv || csv.length < 100) throw new Error('數據為空');
+    
+    parseCSV(csv);
+    updateUI();
+    const time = new Date().toLocaleTimeString('zh-TW');
+    document.getElementById('status-banner').innerHTML = '✅ 已從Google Sheets同步數據 | 更新於 ' + time;
+    
   }catch(err){
     console.error('Google Sheets讀取失敗:', err);
-    document.getElementById('status-banner').innerHTML = '⚠️ Google Sheets讀取失敗，建議：1.確保Google Sheet已公開分享 2.點擊「📁 導入」手動導入Excel文件';
+    document.getElementById('status-banner').innerHTML = '⚠️ 無法自動連接Google Sheets。<br>請確保Sheet已公開分享，或點「📁 導入」手動導入Excel檔案。<br><a href="https://docs.google.com/spreadsheets/d/10tc9UgHv_5Qnhc2PyejsuFLnauZGLyLvPLnE5F_geMw/edit?gid=0" target="_blank" style="color:#58a6ff;">📊 查看Google Sheet</a>';
   }
 }
 
@@ -896,8 +873,10 @@ function exportExcel(){
 function updateTime(){
   const d = new Date();
   const t = d.toLocaleTimeString('zh-TW');
-  document.getElementById('time-now').textContent = t.split(' ')[0];
+  const fullTime = d.toLocaleString('zh-TW');
+  document.getElementById('time-now').textContent = t;
   document.getElementById('hdr-time').textContent = t;
+  document.getElementById('last-update-time').textContent = t;
 }
 
 document.getElementById('add-date').valueAsDate = new Date();
