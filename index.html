@@ -283,13 +283,25 @@ tr:hover td{background:rgba(255,255,255,.02);}
 <div class="pane active" id="pane-cal">
   <div id="overdue-block" style="display:none;margin-bottom:16px;">
     <div class="od-split">
-      <div class="card" style="border-left:3px solid var(--red);">
-        <div class="card-t" style="color:var(--red);">⚠️ 逾期應收付 <span class="card-date" id="label-overdue"></span></div>
-        <div id="ev-overdue"></div>
+      <div class="card" style="border-left:3px solid var(--red);padding:10px 14px;">
+        <div class="od-toggle-hdr" onclick="toggleOdBlock('ev-overdue','od-arrow-overdue')" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="color:var(--red);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;">⚠️ 逾期應收付</span>
+            <span class="card-date" id="label-overdue" style="color:var(--red);font-size:12px;font-weight:700;"></span>
+          </div>
+          <span id="od-arrow-overdue" style="color:var(--text3);font-size:12px;transition:transform .2s;">▶</span>
+        </div>
+        <div id="ev-overdue" style="display:none;margin-top:10px;"></div>
       </div>
-      <div class="card" style="border-left:3px solid var(--blue);">
-        <div class="card-t" style="color:var(--blue);">📋 預估應收付 <span class="card-date" id="label-estimate"></span></div>
-        <div id="ev-estimate"><div class="empty">—</div></div>
+      <div class="card" style="border-left:3px solid var(--blue);padding:10px 14px;">
+        <div class="od-toggle-hdr" onclick="toggleOdBlock('ev-estimate','od-arrow-estimate')" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="color:var(--blue);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;">📋 預估應收付</span>
+            <span class="card-date" id="label-estimate" style="color:var(--blue);font-size:12px;font-weight:700;"></span>
+          </div>
+          <span id="od-arrow-estimate" style="color:var(--text3);font-size:12px;transition:transform .2s;">▶</span>
+        </div>
+        <div id="ev-estimate" style="display:none;margin-top:10px;"><div class="empty">—</div></div>
       </div>
     </div>
   </div>
@@ -838,6 +850,14 @@ function parseStatRow(r,tag,datecol){
 }
 
 // ══ 逾期 ZIP ════════════════════════════════════════
+function toggleOdBlock(bodyId, arrowId){
+  var body=document.getElementById(bodyId);
+  var arrow=document.getElementById(arrowId);
+  if(!body)return;
+  var open=body.style.display==='none';
+  body.style.display=open?'block':'none';
+  if(arrow)arrow.style.transform=open?'rotate(90deg)':'';
+}
 function toggleOd(id){
   var b=document.getElementById(id),a=document.getElementById('oarr-'+id);
   if(!b)return;
