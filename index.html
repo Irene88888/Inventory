@@ -212,6 +212,27 @@ tr:hover td{background:rgba(255,255,255,.02);}
 @keyframes sp{to{transform:rotate(360deg)}}
 .ldg{display:flex;align-items:center;gap:12px;padding:24px;color:var(--text3);font-size:13px;}
 .od-split{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+/* hover 交叉資訊 tooltip */
+.cross-tooltip{
+  position:fixed;z-index:9999;
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:8px;padding:10px 14px;
+  font-size:12px;box-shadow:0 4px 24px rgba(0,0,0,.6);
+  pointer-events:none;max-width:300px;line-height:1.8;
+  display:none;
+}
+.ct-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;}
+.ct-title.ap{color:var(--red);}
+.ct-title.ar{color:var(--green);}
+.ct-row{display:flex;gap:8px;align-items:baseline;}
+.ct-label{color:var(--text3);font-size:11px;flex-shrink:0;min-width:36px;}
+.ct-val{color:var(--text);font-size:12px;}
+.ct-amt{font-family:'JetBrains Mono',monospace;font-size:11px;}
+.ct-amt.ap{color:var(--red);}
+.ct-amt.ar{color:var(--green);}
+.ct-done{font-size:10px;background:rgba(63,185,80,.15);color:var(--green);padding:1px 6px;border-radius:4px;}
+.ct-date{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);}
+.ct-sep{border:none;border-top:1px solid var(--border);margin:6px 0;}
 .done-btn{font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg3);color:var(--text3);cursor:pointer;font-family:inherit;white-space:nowrap;transition:.15s;}
 .done-btn:hover{border-color:var(--green);color:var(--green);}
 .done-badge{font-size:9px;background:rgba(63,185,80,.15);color:var(--green);padding:1px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace;white-space:nowrap;}
@@ -514,7 +535,9 @@ function fetchCSV(id,gid,skip){
 }
 // 已處理標記
 // ══ 調整覆蓋 + 快取 ════════════════════════════════
-var _overrideMap = {};  // {originKey: {newDate, newAmt, newNote, updatedBy, updatedAt, ...}}
+var _overrideMap = {};
+var _allARRows = []; // 所有應收原始資料（含已完成）
+var _allAPRows = []; // 所有應付原始資料（含已完成）  // {originKey: {newDate, newAmt, newNote, updatedBy, updatedAt, ...}}
 var _adjTarget = null;  // 目前正在調整的事件物件
 
 // 快取：從 Apps Script 讀取三份 Sheet 的合併資料
@@ -629,6 +652,111 @@ async function saveAdjust() {
 }
 
 // tooltip 顯示原始資訊（滑鼠移入已調整標記）
+// ══ 交叉應收付 Tooltip ══════════════════════════════
+function getCurLabel(amtMap){
+  return Object.keys(amtMap).map(function(cur){
+    return cur+' '+fmtN(amtMap[cur]);
+  }).join(' / ');
+}
+
+function buildCrossRows(rows, datecol, filterCaseNo, excludeTag){
+  // 找同案件編號的對手資料
+  var matched=[];
+  rows.forEach(function(r){
+    var cn=(r['案件編號']||'').trim();
+    if(cn!==filterCaseNo)return;
+    var stat=(r['狀態']||'').trim();
+    var name=(r['備註']||'').trim();
+    var date=r[datecol]||'';
+    // 金額
+    var amts=[];
+    ['TWD','NTD','USD','JPY','EUR','ZAR'].forEach(function(cur){
+      var n=parseFloat(String(r[cur]||'').replace(/[^0-9.]/g,''));
+      if(!isNaN(n)&&n>0)amts.push(cur+' '+fmtN(n));
+    });
+    matched.push({name:name,stat:stat,date:date,amts:amts});
+  });
+  return matched;
+}
+
+function showCrossTooltip(mouseEvt, ev){
+  if(!ev||!ev.caseNo)return;
+  var tip=document.getElementById('cross-tooltip');
+  if(!tip)return;
+
+  var html='';
+
+  if(ev.tag==='AR'){
+    // 應收 → 查對應應付
+    var rows=buildCrossRows(_allAPRows,'付款日',ev.caseNo,'AP');
+    if(!rows.length){tip.style.display='none';return;}
+    html+='<div class="ct-title ap">對應應付</div>';
+    rows.forEach(function(r){
+      var dateStr='';
+      if(r.stat==='已完成'){
+        dateStr='<span class="ct-done">✅ 已完成</span>';
+      }else if(r.stat==='案件通知'){
+        var d=parseDate(r.date);
+        dateStr='<span class="ct-date">'+(d?fmt(d):r.date)+'</span>';
+      }else{
+        dateStr='<span style="color:var(--text3);font-size:11px">'+r.stat+'</span>';
+      }
+      html+='<div class="ct-row"><span class="ct-label">廠商</span><span class="ct-val">'+r.name+'</span></div>';
+      if(r.amts.length)html+='<div class="ct-row"><span class="ct-label">金額</span><span class="ct-amt ap">'+r.amts.join(' / ')+'</span></div>';
+      html+='<div class="ct-row"><span class="ct-label">狀態</span>'+dateStr+'</div>';
+      html+='<hr class="ct-sep">';
+    });
+  } else {
+    // 應付 → 查對應應收
+    var rows=buildCrossRows(_allARRows,'收款日',ev.caseNo,'AR');
+    if(!rows.length){tip.style.display='none';return;}
+    html+='<div class="ct-title ar">對應應收</div>';
+    rows.forEach(function(r){
+      var dateStr='';
+      if(r.stat==='已完成'){
+        dateStr='<span class="ct-done">✅ 已完成</span>';
+      }else if(r.stat==='案件通知'){
+        var d=parseDate(r.date);
+        dateStr='<span class="ct-date">'+(d?fmt(d):r.date)+'</span>';
+      }else{
+        dateStr='<span style="color:var(--text3);font-size:11px">'+r.stat+'</span>';
+      }
+      html+='<div class="ct-row"><span class="ct-label">客戶</span><span class="ct-val">'+r.name+'</span></div>';
+      if(r.amts.length)html+='<div class="ct-row"><span class="ct-label">金額</span><span class="ct-amt ar">'+r.amts.join(' / ')+'</span></div>';
+      html+='<div class="ct-row"><span class="ct-label">狀態</span>'+dateStr+'</div>';
+      html+='<hr class="ct-sep">';
+    });
+  }
+
+  // 移除最後一條分隔線
+  html=html.replace(/<hr class="ct-sep">$/,'');
+
+  if(!html){tip.style.display='none';return;}
+  tip.innerHTML=html;
+  tip.style.display='block';
+  moveCrossTip(mouseEvt);
+}
+
+function moveCrossTip(ev){
+  var tip=document.getElementById('cross-tooltip');
+  if(!tip||tip.style.display==='none')return;
+  var x=ev.clientX+14,y=ev.clientY+14;
+  if(x+310>window.innerWidth) x=ev.clientX-314;
+  if(y+200>window.innerHeight) y=ev.clientY-204;
+  tip.style.left=x+'px';
+  tip.style.top=y+'px';
+}
+
+function hideCrossTooltip(){
+  var tip=document.getElementById('cross-tooltip');
+  if(tip)tip.style.display='none';
+}
+
+document.addEventListener('mousemove',function(ev){
+  var tip=document.getElementById('cross-tooltip');
+  if(tip&&tip.style.display!=='none')moveCrossTip(ev);
+});
+
 function showOrigTooltip(ev, originKey) {
   var o = _overrideMap[originKey] || {};
   var tip = document.getElementById('orig-tooltip');
@@ -802,6 +930,13 @@ function evHTML(tag,name,amt,isEst,ev){
   var L={AP:'應付',AR:'應收',ETD:'ETD',ETA:'ETA'};
   var estStyle='font-size:9px;background:rgba(88,166,255,.2);color:var(--blue);padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;';
   var estTag=isEst?'<span style="'+estStyle+'">&#9996; 預估</span>':'';
+  // 交叉查詢 hover（只有 AR/AP 且有案件編號才加）
+  var hoverAttr='';
+  if(ev&&ev.caseNo&&(tag==='AR'||tag==='AP')){
+    var evKey='_cev_'+ev.caseNo.replace(/[^a-zA-Z0-9]/g,'_')+'_'+tag;
+    window[evKey]=ev;
+    hoverAttr=' onmouseenter="showCrossTooltip(event,window[decodeURIComponent(\''+encodeURIComponent(evKey)+'\')])" onmouseleave="hideCrossTooltip()"';
+  }
   // 調整標記
   var adjTag='';
   if(ev&&ev.date&&(tag==='AR'||tag==='AP')){
@@ -822,7 +957,7 @@ function evHTML(tag,name,amt,isEst,ev){
     doneBtn='<button class="done-btn" onclick="markDone(decodeURIComponent(\''+k2Enc+'\'),\''+tag+'\',decodeURIComponent(\''+nEnc+'\'),\''+dStr+'\',\'\')">&#10003; 處理</button>'
       +'<button class="adj-btn" onclick="openAdjModal(window[\''+evVarKey+'\'])">&#9999; 調整</button>';
   }
-  return '<div class="ev"><span class="ev-tag '+tag.toLowerCase()+'">'+(L[tag]||tag)+'</span>'
+  return '<div class="ev"'+hoverAttr+'><span class="ev-tag '+tag.toLowerCase()+'">'+(L[tag]||tag)+'</span>'
     +'<span class="ev-n">'+(name||'')+estTag+adjTag+'</span>'
     +(amt?'<span class="ev-a '+tag.toLowerCase()+'">'+amt+'</span>':'')
     +doneBtn+'</div>';
@@ -978,7 +1113,10 @@ function mkWkRow(dateLabel,evts){
           :'';
         var doneBtn='<button class="done-btn" onclick="markDone(decodeURIComponent(\''+kEnc+'\'),\''+tg+'\',decodeURIComponent(\''+nEnc+'\'),\''+dStr+'\',\'\')">&#10003; 處理</button>';
         var adjBtn='<button class="adj-btn" onclick="openAdjModal(window[\''+evKey+'\'])">&#9999;</button>';
-        return '<div class="dept-row">'
+        var dEvKey='_cev_'+e.caseNo+'_'+tg;
+        window[dEvKey]=e;
+        var dHoverAttr=e.caseNo?' onmouseenter="showCrossTooltip(event,window[decodeURIComponent(\''+encodeURIComponent('_cev_'+e.caseNo+'_'+tg)+'\')])" onmouseleave="hideCrossTooltip()"':'';
+        return '<div class="dept-row"'+dHoverAttr+'>'
           +'<span class="dept-name">'+(e.name||'')+estTag+adjTag+'</span>'
           +(da?'<span class="dept-amt">'+da+'</span>':'')
           +doneBtn+adjBtn
@@ -1285,6 +1423,9 @@ async function init(){
   ]);
   arFields=arApResults[0].fields; arRows=arApResults[0].rows;
   apFields=arApResults[1].fields; apRows=arApResults[1].rows;
+  // 儲存所有原始列（含已完成，供 hover 交叉查詢）
+  _allARRows=arRows;
+  _allAPRows=apRows;
   dbg.push('[CSV] 應收'+arRows.length+'列 應付'+apRows.length+'列（即時讀取）');
 
   // 採購表若快取無效，也直接讀 CSV
@@ -1402,7 +1543,7 @@ async function init(){
     var filtOD_AR=overdueAR.filter(function(e){return!_doneMap[mkDoneKey(e)];});
     var filtOD_AP=overdueAP.filter(function(e){return!_doneMap[mkDoneKey(e)];});
     var odCnt=filtOD_AR.length+filtOD_AP.length;
-    document.getElementById('label-overdue').textContent=odCnt+'筆'+(odCnt<overdueAR.length+overdueAP.length?' (共'+(overdueAR.length+overdueAP.length)+'筆，已隱藏'+(overdueAR.length+overdueAP.length-odCnt)+'筆)':'');
+    document.getElementById('label-overdue').textContent=odCnt+'筆';
     var odHTML='';
     if(filtOD_AR.length)odHTML+=mkOdZip(filtOD_AR,'AR');
     if(filtOD_AP.length)odHTML+=mkOdZip(filtOD_AP,'AP');
@@ -1602,6 +1743,9 @@ setTimeout(function(){
   if(document.getElementById('pane-ship').classList.contains('active'))loadNotes();
 },500);
 </script>
+<!-- 交叉資訊 Tooltip -->
+<div id="cross-tooltip" class="cross-tooltip"></div>
+
 <!-- 調整覆蓋 Modal -->
 <div id="adj-modal" class="adj-modal" style="display:none;">
   <div class="adj-modal-box">
