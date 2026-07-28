@@ -1244,43 +1244,34 @@ async function init(){
 
   var dbg=[];
 
-  // 資料載入：三份 CSV 平行讀取（快取作為加速備用，失敗不影響資料）
+  // 應收/應付永遠直接讀 CSV（確保狀態過濾最即時，不受快取延遲影響）
+  // 採購/銷售表用快取加速
   var arRows=[],arFields=[],apRows=[],apFields=[],purchRows=[],purchFields=[];
 
-  // 先嘗試快取
+  // 採購表用快取（資料較穩定）
   var usedCache = false;
-  if(cachedData && cachedData.ar && cachedData.ar.length && cachedData.purch && cachedData.purch.length){
-    arRows=cachedData.ar;    arFields=Object.keys(arRows[0]||{});
-    apRows=cachedData.ap||[]; apFields=Object.keys(apRows[0]||{});
-    purchRows=cachedData.purch; purchFields=Object.keys(purchRows[0]||{});
-    // 過濾掉空欄位名稱的 key（Apps Script 可能產生 "":{} 的空欄位）
-    arRows=arRows.map(function(r){var o={};Object.keys(r).forEach(function(k){if(k.trim())o[k]=r[k];});return o;});
-    apRows=apRows.map(function(r){var o={};Object.keys(r).forEach(function(k){if(k.trim())o[k]=r[k];});return o;});
+  if(cachedData && cachedData.purch && cachedData.purch.length){
+    purchRows=cachedData.purch;
     purchRows=purchRows.map(function(r){var o={};Object.keys(r).forEach(function(k){if(k.trim())o[k]=r[k];});return o;});
+    purchFields=Object.keys(purchRows[0]||{});
     usedCache=true;
-    dbg.push('[快取] ✅ 應收'+arRows.length+'列 應付'+apRows.length+'列 採購'+purchRows.length+'列');
-    dbg.push('[快取] 建立時間：'+(cachedData.builtAt||'未知'));
-    // 驗證：檢查欄位是否包含日期欄
-    var arHasDate=arFields.indexOf(DATE_COL_AR)>=0||arRows[0]&&arRows[0][DATE_COL_AR]!==undefined;
-    var apHasDate=apFields.indexOf(DATE_COL_AP)>=0||apRows[0]&&apRows[0][DATE_COL_AP]!==undefined;
-    if(!arHasDate||!apHasDate){
-      dbg.push('[快取] ⚠️ 欄位對應異常（AR:'+DATE_COL_AR+'='+(arHasDate?'✅':'❌')+' AP:'+DATE_COL_AP+'='+(apHasDate?'✅':'❌')+'），改用 CSV');
-      usedCache=false;arRows=[];apRows=[];purchRows=[];
-    }
+    dbg.push('[快取] ✅ 採購'+purchRows.length+'列 建立時間：'+(cachedData.builtAt||'未知'));
   }
 
-  // 快取沒資料 or 不完整 → 直接平行讀取三份 CSV
+  // 應收/應付平行讀取最新 CSV
+  var arApResults = await Promise.all([
+    fetchCSV(ID_AR,GID_AR,SKIP_ROWS).catch(function(e){dbg.push('[應收] ❌ '+e.message);return{fields:[],rows:[]};}),
+    fetchCSV(ID_AP,GID_AP,SKIP_ROWS).catch(function(e){dbg.push('[應付] ❌ '+e.message);return{fields:[],rows:[]};})
+  ]);
+  arFields=arApResults[0].fields; arRows=arApResults[0].rows;
+  apFields=arApResults[1].fields; apRows=arApResults[1].rows;
+  dbg.push('[CSV] 應收'+arRows.length+'列 應付'+apRows.length+'列（即時讀取）');
+
+  // 採購表若快取無效，也直接讀 CSV
   if(!usedCache){
-    dbg.push('[CSV] 快取無效，直接讀取...');
-    var results = await Promise.all([
-      fetchCSV(ID_AR,GID_AR,SKIP_ROWS).catch(function(e){dbg.push('[應收] ❌ '+e.message);return{fields:[],rows:[]};}),
-      fetchCSV(ID_AP,GID_AP,SKIP_ROWS).catch(function(e){dbg.push('[應付] ❌ '+e.message);return{fields:[],rows:[]};}),
-      fetchCSV(ID_PURCH,GID_PURCH,0).catch(function(e){dbg.push('[採購] ❌ '+e.message);return{fields:[],rows:[]};})
-    ]);
-    arFields=results[0].fields; arRows=results[0].rows;
-    apFields=results[1].fields; apRows=results[1].rows;
-    purchFields=results[2].fields; purchRows=results[2].rows;
-    dbg.push('[CSV] ✅ 應收'+arRows.length+'列 應付'+apRows.length+'列 採購'+purchRows.length+'列');
+    var purchResult=await fetchCSV(ID_PURCH,GID_PURCH,0).catch(function(e){dbg.push('[採購] ❌ '+e.message);return{fields:[],rows:[]};});
+    purchFields=purchResult.fields; purchRows=purchResult.rows;
+    dbg.push('[CSV] 採購'+purchRows.length+'列');
   }
 
   // 標記（Sheet 資料 + sessionStorage 即時覆蓋）
