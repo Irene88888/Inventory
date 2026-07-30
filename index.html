@@ -306,7 +306,11 @@ tr:hover td{background:rgba(255,255,255,.02);}
 </div>
 <div class="hdr">
   <div><div class="hdr-t">📦 PM 管理中心</div><div class="hdr-d" id="hDate"></div></div>
-  <div class="hdr-r"><span class="rtime" id="rtime"></span><button class="btn" onclick="init()">🔄 重新整理</button></div>
+  <div class="hdr-r">
+    <span class="rtime" id="rtime"></span>
+    <button class="btn" onclick="init()" title="使用快取資料（快速）">🔄 重新整理</button>
+    <button class="btn" onclick="forceRefresh()" id="force-btn" title="強制從 Google Sheets 讀取最新資料" style="border-color:var(--yellow);color:var(--yellow);">⚡ 即時更新</button>
+  </div>
 </div>
 <div class="tabs">
   <div class="tab active" id="tab-cal"  onclick="goTab('cal')">📅 行事曆提醒 <span class="badge zero" id="b-cal">0</span></div>
@@ -896,6 +900,25 @@ function mkDoneKey(ev){
 }
 
 // 自動重新整理（每5分鐘）
+// 強制即時更新：先清 server-side 快取，再重新整理
+async function forceRefresh(){
+  var btn=document.getElementById('force-btn');
+  var rtime=document.getElementById('rtime');
+  if(btn){btn.disabled=true;btn.textContent='⏳ 更新中...';}
+  rtime.textContent='強制讀取最新資料...';
+  try{
+    if(OVERRIDE_API_URL){
+      // 清除 server-side 快取
+      await fetch(OVERRIDE_API_URL+'?action=cache_rebuild&t='+Date.now());
+    }
+    await init();
+    if(btn){btn.disabled=false;btn.textContent='⚡ 即時更新';}
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent='⚡ 即時更新';}
+    rtime.textContent='更新失敗：'+e.message;
+  }
+}
+
 function startAutoRefresh(){
   if(_autoRefreshTimer) clearInterval(_autoRefreshTimer);
   _autoRefreshTimer=setInterval(function(){init();},5*60*1000);
@@ -1444,41 +1467,60 @@ async function init(){
   document.getElementById('label-week').textContent=fmt(WK_MON)+' ～ '+fmt(WK_SUN);
   document.getElementById('label-nxtwk').textContent=fmt(NWK_MON)+' ～ '+fmt(NWK_SUN);
   document.getElementById('label-30d').textContent=fmt(new Date(NWK_SUN.getTime()+86400000))+' ～ '+fmt(D30);
-  document.getElementById('rtime').textContent='更新中...';
+  document.getElementById('rtime').textContent='載入中...';
 
   var dbg=[];
 
-  // 應收/應付永遠直接讀 CSV（確保狀態過濾最即時，不受快取延遲影響）
-  // 採購/銷售表用快取加速
+  // 資料載入：統一從 Apps Script API 讀取（server-side 快取）
   var arRows=[],arFields=[],apRows=[],apFields=[],purchRows=[],purchFields=[];
 
-  // 採購表用快取（資料較穩定）
-  var usedCache = false;
-  if(cachedData && cachedData.purch && cachedData.purch.length){
-    purchRows=cachedData.purch;
-    purchRows=purchRows.map(function(r){var o={};Object.keys(r).forEach(function(k){if(k.trim())o[k]=r[k];});return o;});
-    purchFields=Object.keys(purchRows[0]||{});
-    usedCache=true;
-    dbg.push('[快取] ✅ 採購'+purchRows.length+'列 建立時間：'+(cachedData.builtAt||'未知'));
-  }
-
-  // 應收/應付平行讀取最新 CSV
-  var arApResults = await Promise.all([
-    fetchCSV(ID_AR,GID_AR,SKIP_ROWS).catch(function(e){dbg.push('[應收] ❌ '+e.message);return{fields:[],rows:[]};}),
-    fetchCSV(ID_AP,GID_AP,SKIP_ROWS).catch(function(e){dbg.push('[應付] ❌ '+e.message);return{fields:[],rows:[]};})
-  ]);
-  arFields=arApResults[0].fields; arRows=arApResults[0].rows;
-  apFields=arApResults[1].fields; apRows=arApResults[1].rows;
-  // 儲存所有原始列（含已完成，供 hover 交叉查詢）
-  _allARRows=arRows;
-  _allAPRows=apRows;
-  dbg.push('[CSV] 應收'+arRows.length+'列 應付'+apRows.length+'列（即時讀取）');
-
-  // 採購表若快取無效，也直接讀 CSV
-  if(!usedCache){
-    var purchResult=await fetchCSV(ID_PURCH,GID_PURCH,0).catch(function(e){dbg.push('[採購] ❌ '+e.message);return{fields:[],rows:[]};});
-    purchFields=purchResult.fields; purchRows=purchResult.rows;
-    dbg.push('[CSV] 採購'+purchRows.length+'列');
+  if(OVERRIDE_API_URL){
+    // 用 Apps Script get_all：AR+AP+PURCH 一次回傳，server-side 快取
+    try{
+      var apiRes=await fetch(OVERRIDE_API_URL+'?action=get_all&t='+Date.now());
+      var apiJson=await apiRes.json();
+      if(apiJson.status==='ok'&&apiJson.data){
+        var d=apiJson.data;
+        arRows=(d.ar||[]).map(function(r){var o={};Object.keys(r).forEach(function(k){if(k.trim())o[k]=r[k];});return o;});
+        apRows=(d.ap||[]).map(function(r){var o={};Object.keys(r).forEach(function(k){if(k.trim())o[k]=r[k];});return o;});
+        purchRows=(d.purch||[]).map(function(r){var o={};Object.keys(r).forEach(function(k){if(k.trim())o[k]=r[k];});return o;});
+        arFields=Object.keys(arRows[0]||{});
+        apFields=Object.keys(apRows[0]||{});
+        purchFields=Object.keys(purchRows[0]||{});
+        _allARRows=arRows;
+        _allAPRows=apRows;
+        window._lastDataSource=apiJson.source;
+        dbg.push('[API] ✅ source='+apiJson.source+' 應收'+arRows.length+'列 應付'+apRows.length+'列 採購'+purchRows.length+'列');
+        dbg.push('[API] 建立時間：'+(d.builtAt||'未知'));
+      }else{
+        throw new Error(apiJson.message||'API 回傳異常');
+      }
+    }catch(e){
+      dbg.push('[API] ❌ '+e.message+'，改用 CSV...');
+      // Fallback：平行讀取 CSV
+      var fb=await Promise.all([
+        fetchCSV(ID_AR,GID_AR,SKIP_ROWS).catch(function(){return{fields:[],rows:[]};}),
+        fetchCSV(ID_AP,GID_AP,SKIP_ROWS).catch(function(){return{fields:[],rows:[]};}),
+        fetchCSV(ID_PURCH,GID_PURCH,0).catch(function(){return{fields:[],rows:[]};})
+      ]);
+      arFields=fb[0].fields;arRows=fb[0].rows;
+      apFields=fb[1].fields;apRows=fb[1].rows;
+      purchFields=fb[2].fields;purchRows=fb[2].rows;
+      _allARRows=arRows;_allAPRows=apRows;
+      dbg.push('[CSV fallback] 應收'+arRows.length+'列 應付'+apRows.length+'列 採購'+purchRows.length+'列');
+    }
+  }else{
+    // 沒有 API URL：平行讀取三份 CSV
+    var fb=await Promise.all([
+      fetchCSV(ID_AR,GID_AR,SKIP_ROWS).catch(function(){return{fields:[],rows:[]};}),
+      fetchCSV(ID_AP,GID_AP,SKIP_ROWS).catch(function(){return{fields:[],rows:[]};}),
+      fetchCSV(ID_PURCH,GID_PURCH,0).catch(function(){return{fields:[],rows:[]};})
+    ]);
+    arFields=fb[0].fields;arRows=fb[0].rows;
+    apFields=fb[1].fields;apRows=fb[1].rows;
+    purchFields=fb[2].fields;purchRows=fb[2].rows;
+    _allARRows=arRows;_allAPRows=apRows;
+    dbg.push('[CSV] 應收'+arRows.length+'列 應付'+apRows.length+'列 採購'+purchRows.length+'列');
   }
 
   // 標記（Sheet 資料 + sessionStorage 即時覆蓋）
@@ -1779,7 +1821,11 @@ async function init(){
   document.getElementById('ship-body').innerHTML=shipHTML;
 
   var n=new Date();
-  document.getElementById('rtime').textContent='最後更新 '+String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');
+  var timeStr=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');
+  // 顯示資料來源
+  var src=window._lastDataSource||'';
+  var srcLabel=src==='cache'?'（快取）':src==='fresh'?'（即時）':'';
+  document.getElementById('rtime').textContent='最後更新 '+timeStr+' '+srcLabel;
 }
 
 init();
